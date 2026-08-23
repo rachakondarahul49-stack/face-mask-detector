@@ -1,77 +1,263 @@
+import os
 from typing import Dict, Any
 
+from dotenv import load_dotenv
+
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_community.tools.tavily_search import TavilySearchResults
+from langchain_tavily import TavilySearch
 from langchain_experimental.tools import PythonREPLTool
+
+from langchain_core.messages import SystemMessage
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.graph import StateGraph, START, MessagesState
 
 
 # ============================================================
-# 1. Tools
+# 1. LOAD ENVIRONMENT VARIABLES
 # ============================================================
 
-search_tool = TavilySearchResults(max_results=3)
+load_dotenv()
 
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
+
+
+if not GOOGLE_API_KEY:
+    raise ValueError(
+        "GOOGLE_API_KEY is missing from your .env file"
+    )
+
+if not TAVILY_API_KEY:
+    raise ValueError(
+        "TAVILY_API_KEY is missing from your .env file"
+    )
+
+
+# ============================================================
+# 2. CREATE TOOLS
+# ============================================================
+
+# Tavily web search
+search_tool = TavilySearch(
+    max_results=3,
+    tavily_api_key=TAVILY_API_KEY
+)
+
+
+# Python calculator / execution
 python_tool = PythonREPLTool()
 
-tools = [search_tool, python_tool]
+
+# Put all tools into one list
+tools = [
+    search_tool,
+    python_tool
+]
 
 
 # ============================================================
-# 2. Gemini Model
+# 3. GEMINI MODEL
 # ============================================================
 
 model = ChatGoogleGenerativeAI(
-    model="gemini-3.5-flash",
+    model="gemini-3.5-flash-lite",
+    google_api_key=GOOGLE_API_KEY,
     temperature=0
 ).bind_tools(tools)
 
 
 # ============================================================
-# 3. Agent Node
+# 4. SYSTEM PROMPT
+# ============================================================
+
+SYSTEM_PROMPT = """
+You are an intelligent Agentic AI Assistant.
+
+You have access to two tools.
+
+============================================================
+TOOL 1: TAVILY WEB SEARCH
+============================================================
+
+Use Tavily Web Search whenever the user asks for information
+that may require current or real-time information.
+
+Examples:
+
+- latest information
+- current information
+- today's information
+- recent events
+- news
+- sports results
+- Formula 1 results
+- latest AI developments
+- current technology news
+- current prices
+- live internet information
+- recent company information
+- anything that requires browsing the internet
+
+IMPORTANT:
+
+Never answer a "latest", "current", "today", "recent", or
+"who won" question using your own knowledge.
+
+Use Tavily first.
+
+============================================================
+TOOL 2: PYTHON
+============================================================
+
+Use Python for:
+
+- calculations
+- mathematical operations
+- numerical problems
+- statistics
+- percentages
+- averages
+- large calculations
+- data manipulation
+
+For simple calculations, Python is preferred.
+
+============================================================
+FINAL RESPONSE
+============================================================
+
+After using a tool:
+
+1. Understand the tool result.
+2. Give the user a clear answer.
+3. Do not expose internal tool calls.
+4. Do not say that you cannot browse if Tavily is available.
+5. If the search results are uncertain, clearly mention that.
+"""
+
+
+# ============================================================
+# 5. AGENT NODE
 # ============================================================
 
 def agent_node(state: MessagesState) -> Dict[str, Any]:
-    messages = state["messages"]
 
-    response = model.invoke(messages)
+    system_message = SystemMessage(
+        content=SYSTEM_PROMPT
+    )
 
-    return {"messages": [response]}
+    response = model.invoke(
+        [system_message] + state["messages"]
+    )
+
+    return {
+        "messages": [response]
+    }
 
 
 # ============================================================
-# 4. LangGraph Workflow
+# 6. CREATE LANGGRAPH WORKFLOW
 # ============================================================
 
 workflow = StateGraph(MessagesState)
 
-workflow.add_node("agent", agent_node)
 
-workflow.add_node("tools", ToolNode(tools))
+# Add agent node
+workflow.add_node(
+    "agent",
+    agent_node
+)
 
-workflow.add_edge(START, "agent")
 
+# Add tools node
+workflow.add_node(
+    "tools",
+    ToolNode(tools)
+)
+
+
+# Start -> Agent
+workflow.add_edge(
+    START,
+    "agent"
+)
+
+
+# Agent -> Tools OR End
 workflow.add_conditional_edges(
     "agent",
     tools_condition
 )
 
-workflow.add_edge("tools", "agent")
 
+# Tools -> Agent
+workflow.add_edge(
+    "tools",
+    "agent"
+)
+
+
+# Compile graph
 app = workflow.compile()
 
 
 # ============================================================
-# 5. Interactive CLI
+# 7. PRINT RESPONSE CLEANLY
 # ============================================================
 
-if __name__ == "__main__":
+def print_clean_response(content):
 
-    print("====================================================")
-    print("Welcome to your local Agentic AI CLI!")
-    print("Type 'exit', 'quit', or 'q' to end the session.")
-    print("====================================================")
+    if isinstance(content, str):
+
+        print(content)
+
+    elif isinstance(content, list):
+
+        for item in content:
+
+            if isinstance(item, dict):
+
+                text = item.get("text")
+
+                if text:
+                    print(text)
+
+            else:
+                print(item)
+
+    else:
+
+        print(content)
+
+
+# ============================================================
+# 8. CHAT APPLICATION
+# ============================================================
+
+def main():
+
+    print("=" * 65)
+    print("                 AGENTIC AI ASSISTANT")
+    print("=" * 65)
+
+    print()
+    print("Available capabilities:")
+    print("  • Tavily Web Search")
+    print("  • Python Calculator")
+    print("  • Gemini AI")
+    print("  • LangGraph Agent")
+    print()
+
+    print("Examples:")
+    print("  Calculate 25 * 40")
+    print("  Who won the latest Formula 1 Grand Prix?")
+    print("  What are the latest AI developments?")
+    print("  Explain machine learning")
+    print()
+
+    print("Type 'exit' to stop.")
+    print("=" * 65)
+
 
     while True:
 
@@ -79,33 +265,65 @@ if __name__ == "__main__":
 
             user_input = input("\nYou: ").strip()
 
+
+            # Ignore empty input
             if not user_input:
                 continue
 
-            if user_input.lower() in ["exit", "quit", "q"]:
-                print("Goodbye!")
+
+            # Exit commands
+            if user_input.lower() in [
+                "exit",
+                "quit",
+                "q"
+            ]:
+
+                print("\nGoodbye!")
                 break
 
-            events = app.stream(
-                {"messages": [("user", user_input)]},
-                stream_mode="values"
+
+            # ==================================================
+            # RUN LANGGRAPH
+            # ==================================================
+
+            result = app.invoke(
+                {
+                    "messages": [
+                        ("user", user_input)
+                    ]
+                }
             )
 
-            last_message = None
 
-            for event in events:
+            # ==================================================
+            # GET FINAL MESSAGE
+            # ==================================================
 
-                if "messages" in event:
-                    last_message = event["messages"][-1]
+            final_message = result["messages"][-1]
 
-            if last_message:
-                print(f"\nAgent: {last_message.content}")
+
+            print("\nAgent:")
+
+            print_clean_response(
+                final_message.content
+            )
+
 
         except KeyboardInterrupt:
 
-            print("\nGoodbye!")
+            print("\n\nGoodbye!")
             break
+
 
         except Exception as e:
 
-            print(f"\nAn error occurred: {e}")
+            print("\nError:")
+            print(e)
+
+
+# ============================================================
+# 9. RUN PROGRAM
+# ============================================================
+
+if __name__ == "__main__":
+    main()
