@@ -37,24 +37,25 @@ face image as **`with_mask`** or **`without_mask`**. It includes:
 
 ## Results
 
-> Run `python src/evaluate.py` after training and paste your held-out
-> precision / recall / F1 / confusion matrix here. Numbers below are from
-> initial development and should be reproduced on your own run before
-> quoting them elsewhere.
+Evaluated on a held-out validation split (20% of the dataset, 1,510 images)
+during training, and on the full dataset with `src/evaluate.py`:
 
-| Epoch | Train Loss | Train Accuracy |
-|:-----:|:----------:|:---------------:|
-| 1     | 0.062      | 97.85%          |
-| 2     | 0.031      | 98.96%          |
-| 3     | 0.021      | 99.27%          |
-| 4     | 0.019      | **99.37%**      |
-| 5     | 0.027      | 99.12%          |
+| Metric              | Held-out Val (best epoch) | Full-dataset eval |
+|----------------------|:--------------------------:|:-------------------:|
+| Accuracy             | 99.67%                    | 99.76%             |
+| Precision (macro)    | —                          | 0.9976              |
+| Recall (macro)       | —                          | 0.9976              |
+| F1-score (macro)     | —                          | 0.9976              |
 
-`src/train.py` (unlike the original exploratory notebook) checkpoints the
-**best** model by validation accuracy, not simply whatever the last epoch
-produces, and `src/evaluate.py` reports true held-out metrics — use that
-script's output as the headline number for this project, not raw training
-accuracy.
+Confusion matrix (full-dataset eval):
+
+|                  | Predicted: with_mask | Predicted: without_mask |
+|------------------|:---------------------:|:-------------------------:|
+| **Actual: with_mask**    | 3725                  | 0                         |
+| **Actual: without_mask** | 18                    | 3810                      |
+
+Only 18 misclassifications out of 7,553 images, all false negatives on the
+without_mask class (predicted as wearing a mask when not).
 
 ## Project Structure
 
